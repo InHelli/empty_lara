@@ -1,0 +1,129 @@
+version: '3'
+
+services:
+
+  ### Rabbit ###########################################
+  rabbit:
+    image: "rabbitmq:3-management"
+    environment:
+      RABBITMQ_ERLANG_COOKIE: "SWQOKODSQALRPCLNMEQG"
+      RABBITMQ_DEFAULT_USER: "rabbitmq"
+      RABBITMQ_DEFAULT_PASS: "rabbitmq"
+      RABBITMQ_DEFAULT_VHOST: "/"
+    expose:
+      - "5672"
+    restart: always
+
+  ### PostgreSQL ###########################################
+  postgres:
+    image: postgres:11.6
+    volumes:
+      - ./docker/data/postgres:/var/lib/postgresql/data
+      - ./docker/data/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+    environment:
+      - POSTGRES_DB=db
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=password
+    restart: always
+
+  ### Redis ###########################################
+  redis:
+    image: redis
+    expose:
+      - "6379"
+    restart: always
+
+  ### Workspace Utilities ##################################
+  workspace:
+    build:
+      context: ./docker/containers/workspace
+      args:
+        - PUID=${PUID}
+        - PGID=${PGID}
+    volumes:
+      - ./code:${CODE_PATH}
+    links:
+      - postgres
+      - redis
+      - rabbit
+    tty: true
+    restart: always
+
+  ### PHP-FPM ##############################################
+  php-fpm:
+    build:
+      context: ./docker/containers/php-fpm
+      args:
+        - PUID=${PUID}
+        - PGID=${PGID}
+    volumes:
+      - ./code:${CODE_PATH}
+    expose:
+      - "9000"
+    links:
+      - postgres
+      - redis
+      - rabbit
+      - testing
+      - testredis
+    restart: always
+
+  ### PHP-FPM ##############################################
+  php-worker:
+    build:
+      context: ./docker/containers/php-worker
+      args:
+        - PUID=${PUID}
+        - PGID=${PGID}
+    volumes:
+      - ./code:${CODE_PATH}
+    expose:
+      - "9000"
+    links:
+      - postgres
+      - redis
+      - rabbit
+      - testing
+      - testredis
+    restart: always
+
+  ### NGINX Server #########################################
+  nginx:
+    build:
+      context: ./docker/containers/nginx
+      args:
+        - PUID=${PUID}
+        - PGID=${PGID}
+        - PHP_UPSTREAM_CONTAINER=php-fpm
+        - PHP_UPSTREAM_PORT=9000
+    volumes:
+      - ./code:${CODE_PATH}
+      - ./docker/logs/server/nginx/:/var/log/nginx
+      - ./docker/containers/nginx/sites/:/etc/nginx/sites-available
+    ports:
+      - "80:80"
+    links:
+      - php-fpm
+    restart: always
+
+  ### Adminer ##############
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 72:8080
+
+  ### Testing #####
+  testing:
+    image: postgres
+    environment:
+      - POSTGRES_DB=testsql
+      - POSTGRES_USER=tester
+      - POSTGRES_PASSWORD=password
+    restart: always
+
+  testredis:
+    image: redis
+    ports:
+      - "6379:6379"
+    restart: always
